@@ -1,0 +1,14 @@
+{
+  "name": "sonicdraft",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/js/*.test.js",
+    "dev": "tailwindcss -i ./src/input.css -o ./dist/css/app.css --watch",
+    "build": "tailwindcss -i ./src/input.css -o ./dist/css/app.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}
