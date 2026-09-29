@@ -6,6 +6,7 @@ import { generateMasterPrompt } from './promptGenerator.js';
 import { AI_PROVIDERS, openProvider } from './providers.js';
 import { translate, translateOption } from './translations.js';
 import { animateExit } from './animations.js';
+import { PERFORMANCE_DIRECTIONS, PERFORMANCE_PRESETS, SECTION_TYPES, SIMPLE_SECTION_LIMIT, TRANSFORM_ACTION, applyPerformancePreset, createPerformanceFeature, createReferenceFeature, createSectionRow } from './features.js';
 
 const app = document.querySelector('#app');
 const overlayRoot = document.querySelector('#overlay-root');
@@ -97,11 +98,46 @@ function vocalEditor(advanced = false) {
   const noVoice = voices.length ? '' : `<p class="field-hint">${escapeHtml(tx('voiceCount'))}</p>`;
   return `${voiceFields}${noVoice}${voices.length < max ? `<button type="button" class="add-button" data-add-voice>${escapeHtml(tx('addVoice'))} <span aria-hidden="true">＋</span></button>` : ''}`;
 }
+// ---- Optional features: Reference Music Analysis + Performance Direction ---
+const REFERENCE_ACTION_META = [
+  { value: 'Copy Music Style', label: 'copyMusicStyle' },
+  { value: 'Adapt / Transform Style', label: 'adaptTransformStyle' },
+  { value: 'Copy Lyrical Mood / Emotional Tone', label: 'copyLyricalMood' }
+];
+function renderFeatureSections(advanced) {
+  return `${renderReferenceFeature(advanced)}${renderPerformanceFeature(advanced)}`;
+}
+function featureToggle(labelKey, description, checked, action) {
+  const id = `toggle-${action}`;
+  return `<div class="feature-toggle-row"><div class="feature-toggle-copy"><span class="feature-toggle-label">${escapeHtml(fieldLabel(labelKey, labelKey))}</span><span class="feature-toggle-hint">${escapeHtml(description)}</span></div><button type="button" class="feature-toggle ${checked ? 'on' : ''}" role="switch" aria-checked="${checked}" id="${id}" ${action === 'reference' ? 'data-toggle-reference' : 'data-toggle-performance'} aria-label="${escapeHtml(fieldLabel(labelKey, labelKey))}"><span class="feature-toggle-knob" aria-hidden="true"></span></button></div>`;
+}
+function renderReferenceFeature(advanced) {
+  const ref = current().reference;
+  const checked = action => ref.actions.includes(action);
+  const core = `<div class="feature-body">${inputField('@referenceSource', 'reference.sourceDescription', ref.sourceDescription, { placeholder: tx('referenceSourcePlaceholder'), full: true, large: true })}<div class="feature-action-grid">${REFERENCE_ACTION_META.map(meta => `<button type="button" class="chip ${checked(meta.value) ? 'selected' : ''}" aria-pressed="${checked(meta.value)}" data-reference-action="${escapeHtml(meta.value)}">${escapeHtml(tx(meta.label))}</button>`).join('')}</div>${checked(TRANSFORM_ACTION) ? `<div class="transform-slider ${advanced ? '' : 'compact'}"><div class="field-label"><span>${escapeHtml(tx('transformAmount'))}</span><span class="field-hint">${ref.transformAmount}%</span></div><input type="range" min="0" max="100" step="5" value="${Number(ref.transformAmount) || 0}" data-bind="reference.transformAmount" aria-label="${escapeHtml(tx('transformAmount'))}"><div class="transform-scale" aria-hidden="true"><span>${escapeHtml(tx('transformMin'))}</span><span>${escapeHtml(tx('transformMax'))}</span></div></div>` : ''}</div>`;
+  const extra = advanced && ref.enabled ? `<div class="feature-extra"><div class="section-label">${escapeHtml(tx('referenceAdvancedTitle'))}</div><div class="field-grid">${inputField('@elementsToCopy', 'reference.detail.elementsToCopy', ref.detail.elementsToCopy, { placeholder: 'e.g. drum tone, reverb style, tempo feel…', full: true })}${inputField('@elementsToAvoid', 'reference.detail.elementsToAvoid', ref.detail.elementsToAvoid, { placeholder: 'e.g. heavy autotune, EDM drops…', full: true })}${inputField('@themesToKeep', 'reference.detail.lyricalThemesToKeep', ref.detail.lyricalThemesToKeep, { placeholder: 'e.g. longing, night imagery…', full: true })}${inputField('@themesToAvoid', 'reference.detail.lyricalThemesToAvoid', ref.detail.lyricalThemesToAvoid, { placeholder: 'e.g. party clichés…', full: true })}</div></div>` : '';
+  return `<section class="feature-section ${ref.enabled ? 'enabled' : ''}" aria-labelledby="reference-feature-title"><div class="feature-head"><div><h3 id="reference-feature-title" class="feature-title">${escapeHtml(tx('referenceFeatureTitle'))}</h3><p class="feature-desc">${escapeHtml(tx('referenceFeatureDesc'))}</p></div></div>${featureToggle('enableReferenceLabel', tx('referenceToggleHint'), ref.enabled, 'reference')}${ref.enabled ? core + extra : ''}</section>`;
+}
+function renderPerformanceFeature(advanced) {
+  const perf = current().performance;
+  const isSimple = appState.activeMode === 'simple';
+  const max = isSimple ? SIMPLE_SECTION_LIMIT : 99;
+  const rows = perf.sections;
+  const rowMarkup = rows.map((row, index) => {
+    const prefix = `performance.sections.${index}`;
+    const typeField = row.type === 'Custom' ? `<div class="section-row-fields">${selectField('sectionType', `${prefix}.type`, row.type, SECTION_TYPES, { allowEmpty: false })}${inputField('@customSection', `${prefix}.custom`, row.custom, { placeholder: 'e.g. Drop 2', full: true })}</div>` : `<div class="section-row-fields">${selectField('sectionType', `${prefix}.type`, row.type, SECTION_TYPES, { allowEmpty: false })}</div>`;
+    const noteField = advanced ? inputField('@sectionNote', `${prefix}.note`, row.note, { placeholder: tx('sectionNotePlaceholder'), full: true }) : '';
+    return `<div class="section-row"><div class="section-row-main">${typeField}<div class="section-row-fields">${selectField('performanceDirection', `${prefix}.direction`, row.direction, PERFORMANCE_DIRECTIONS, { allowEmpty: false })}</div>${noteField}</div><button type="button" class="text-action section-remove" data-remove-section="${index}" aria-label="${escapeHtml(tx('remove'))}">${escapeHtml(tx('remove'))}</button></div>`;
+  }).join('');
+  const core = `<div class="feature-body">${isSimple ? `<div class="preset-row">${PERFORMANCE_PRESETS.map(preset => `<button type="button" class="chip preset-chip" data-apply-preset-performance="${escapeHtml(preset.id)}">${escapeHtml(preset.name)}</button>`).join('')}</div>` : ''}<div class="section-rows">${rowMarkup || `<p class="field-hint">${escapeHtml(tx('noSectionsHint'))}</p>`}</div>${rows.length < max ? `<button type="button" class="add-button" data-add-section>${escapeHtml(tx('addSection'))} <span aria-hidden="true">＋</span></button>` : `<p class="field-hint">${escapeHtml(tx('sectionLimitHint'))}</p>`}</div>`;
+  const extra = advanced && perf.enabled ? `<div class="feature-extra"><p class="field-hint">${escapeHtml(tx('performanceAdvancedHint'))}</p></div>` : '';
+  return `<section class="feature-section ${perf.enabled ? 'enabled' : ''}" aria-labelledby="performance-feature-title"><div class="feature-head"><div><h3 id="performance-feature-title" class="feature-title">${escapeHtml(tx('performanceFeatureTitle'))}</h3><p class="feature-desc">${escapeHtml(tx('performanceFeatureDesc'))}</p></div></div>${featureToggle('enablePerformanceLabel', tx('performanceToggleHint'), perf.enabled, 'performance')}${perf.enabled ? core + extra : ''}</section>`;
+}
 function renderSimpleStep(step) {
   switch (step.id) {
     case 'style': return `${stageHeader('styleTitle', 'styleDesc', activeStepIndex())}<div class="field-grid">${selectField('genre', 'genre', current().genre, GENRES)}${inputField('@subgenre', 'subgenre', current().subgenre, { placeholder: 'e.g. Persian folk, dream pop…' })}${inputField('@styleDescription', 'styleDescription', current().styleDescription, { placeholder: tx('stylePlaceholder'), full: true, large: true })}</div>`;
     case 'mood': return `${stageHeader('moodTitle', 'moodDesc', activeStepIndex())}<div class="field-grid one">${chipGroup('mood', 'moods', MOODS, current().moods, { multi: true, max: 4 })}${chipGroup('emotionalDirection', 'emotionalDirection', ['Beginning', 'Development', 'Climax', 'Ending'], current().emotionalDirection)}</div>`;
-    case 'lyrics': return `${stageHeader('lyricsTitle', 'lyricsDesc', activeStepIndex())}<div class="field-grid">${selectField('songLanguage', 'songLanguage', current().songLanguage, LANGUAGES, { allowEmpty: false })}${inputField('@concept', 'lyricsDescription', current().lyricsDescription, { placeholder: tx('lyricsPlaceholder'), full: true, large: true })}</div>`;
+    case 'lyrics': return `${stageHeader('lyricsTitle', 'lyricsDesc', activeStepIndex())}<div class="field-grid">${selectField('songLanguage', 'songLanguage', current().songLanguage, LANGUAGES, { allowEmpty: false })}${inputField('@concept', 'lyricsDescription', current().lyricsDescription, { placeholder: tx('lyricsPlaceholder'), full: true, large: true })}</div>${renderFeatureSections(false)}`;
     case 'vocals': return `${stageHeader('vocalsTitle', 'vocalsDesc', activeStepIndex())}<div class="field-grid one">${vocalEditor(false)}</div>`;
     case 'review': return `${stageHeader('reviewTitle', 'reviewDesc', activeStepIndex())}<div class="review-list">${reviewRows(false)}</div>`;
     case 'generate': return `${stageHeader('resultTitle', 'promptReady', activeStepIndex())}<div class="review-list">${reviewRows(false)}</div>`;
@@ -115,7 +151,7 @@ function renderAdvancedStep(step) {
     case 'music': return `${stageHeader('musicTitle', 'musicDesc', activeStepIndex())}<div class="advanced-group">${sectionTitle('musicTitle')}<div class="field-grid">${inputField('@tempo', 'bpm', s.bpm ?? '', { type: 'number', min: 50, max: 200, hint: tx('bpmHelp') })}${selectField('timeSignature', 'timeSignature', s.timeSignature, ['4/4', '3/4', '6/8', '2/4', '5/4', '7/8', 'Custom'])}${s.timeSignature === 'Custom' ? inputField('@custom', 'customTimeSignature', s.customTimeSignature, { placeholder: 'e.g. 9/8' }) : '<div></div>'}${selectField('key', 'key', s.key, ['C Major', 'C Minor', 'C♯ / D♭ Major', 'C♯ / D♭ Minor', 'D Major', 'D Minor', 'D♯ / E♭ Major', 'D♯ / E♭ Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F♯ / G♭ Major', 'F♯ / G♭ Minor', 'G Major', 'G Minor', 'G♯ / A♭ Major', 'G♯ / A♭ Minor', 'A Major', 'A Minor', 'A♯ / B♭ Major', 'A♯ / B♭ Minor', 'B Major', 'B Minor'])}${selectField('musicalMode', 'modeName', s.modeName, ['Major', 'Minor', 'Dorian', 'Mixolydian', 'Phrygian', 'Lydian', 'Harmonic Minor', 'Melodic Minor', 'Custom'])}${s.modeName === 'Custom' ? inputField('@custom', 'customMode', s.customMode, { placeholder: 'Custom mode' }) : '<div></div>'}</div></div><div class="advanced-group">${sectionTitle('harmony')}<div class="field-grid">${selectField('harmonicCharacter', 'harmony.character', s.harmony.character, ['Consonant', 'Warm', 'Bittersweet', 'Moody', 'Unresolved', 'Tense'])}${selectField('chordComplexity', 'harmony.complexity', s.harmony.complexity, ['Simple', 'Moderate', 'Rich extensions', 'Jazz-influenced', 'Experimental'])}${selectField('tension', 'harmony.tension', s.harmony.tension, ['Low', 'Gentle tension', 'Moderate', 'High'])}${selectField('resolution', 'harmony.resolution', s.harmony.resolution, ['Clear resolution', 'Delayed resolution', 'Open-ended', 'Avoid resolution'])}</div></div><div>${sectionTitle('rhythm')}<div class="field-grid">${selectField('groove', 'rhythm.groove', s.rhythm.groove, ['Straight', 'Swung', 'Half-time', 'Shuffle', 'Laid-back', 'Driving', 'Swaying', 'Syncopated'])}${selectField('swing', 'rhythm.swing', s.rhythm.swing, ['None', 'Subtle', 'Moderate', 'Heavy'])}${selectField('syncopation', 'rhythm.syncopation', s.rhythm.syncopation, ['Minimal', 'Subtle', 'Moderate', 'Strong'])}${selectField('rhythmicDensity', 'rhythm.density', s.rhythm.density, ['Sparse', 'Open', 'Moderate', 'Busy'])}${selectField('percussionDensity', 'rhythm.percussionDensity', s.rhythm.percussionDensity, ['None', 'Sparse', 'Moderate', 'Dense'])}</div></div>`;
     case 'instruments': return renderInstrumentStep();
     case 'vocals': return `${stageHeader('vocalAdvancedTitle', 'vocalAdvancedDesc', activeStepIndex())}<div class="field-grid one">${vocalEditor(true)}${chipGroup('vocalInteraction', 'vocalInteraction', ['Unison', 'Harmony', 'Call and response', 'Alternating verses', 'Layered chorus', 'Background support', 'Countermelody', 'Ad-libs'], s.vocalInteraction, { multi: true, max: 8 })}</div>`;
-    case 'lyrics': return `${stageHeader('lyricsAdvancedTitle', 'lyricsAdvancedDesc', activeStepIndex())}<div class="field-grid">${selectField('songLanguage', 'songLanguage', s.songLanguage, LANGUAGES, { allowEmpty: false })}${selectField('emotionalArc', 'emotionalArc', s.emotionalArc, ['Gradual lift', 'Rise and fall', 'Quiet to cathartic', 'Dark to hopeful', 'Steady and intimate', 'Cyclical'])}${selectField('lyricDensity', 'lyricDensity', s.lyricDensity, ['Sparse', 'Moderate', 'Dense', 'Conversational'])}${selectField('lyricComplexity', 'lyricComplexity', s.lyricComplexity, ['Direct', 'Poetic but natural', 'Layered imagery', 'Narrative'])}${inputField('@concept', 'lyricsDescription', s.lyricsDescription, { placeholder: tx('lyricsPlaceholder'), full: true, large: true })}</div>`;
+    case 'lyrics': return `${stageHeader('lyricsAdvancedTitle', 'lyricsAdvancedDesc', activeStepIndex())}<div class="field-grid">${selectField('songLanguage', 'songLanguage', s.songLanguage, LANGUAGES, { allowEmpty: false })}${selectField('emotionalArc', 'emotionalArc', s.emotionalArc, ['Gradual lift', 'Rise and fall', 'Quiet to cathartic', 'Dark to hopeful', 'Steady and intimate', 'Cyclical'])}${selectField('lyricDensity', 'lyricDensity', s.lyricDensity, ['Sparse', 'Moderate', 'Dense', 'Conversational'])}${selectField('lyricComplexity', 'lyricComplexity', s.lyricComplexity, ['Direct', 'Poetic but natural', 'Layered imagery', 'Narrative'])}${inputField('@concept', 'lyricsDescription', s.lyricsDescription, { placeholder: tx('lyricsPlaceholder'), full: true, large: true })}</div>${renderFeatureSections(true)}`;
     case 'structure': return `${stageHeader('structureTitle', 'structureDesc', activeStepIndex())}<div class="field-grid">${selectField('songStructure', 'songStructure', s.songStructure, ['Standard Pop', 'Short Form', 'Cinematic', 'Ballad', 'Custom'])}${s.songStructure === 'Custom' ? inputField('@customStructure', 'customStructure', s.customStructure, { placeholder: tx('structurePlaceholder') }) : '<div></div>'}<div class="field full">${sectionTitle('arrangement')}<div class="field-grid">${selectField('arrangementDensity', 'arrangement.density', s.arrangement.density, ['Sparse', 'Gradual build', 'Full and layered', 'Dynamic'])}${selectField('complexity', 'arrangement.complexity', s.arrangement.complexity, ['Minimal', 'Moderate', 'Detailed', 'Ornate'])}${inputField('@introBehavior', 'arrangement.intro', s.arrangement.intro, { placeholder: 'Piano-led, intimate…' })}${inputField('@verseDevelopment', 'arrangement.verse', s.arrangement.verse, { placeholder: 'Add subtle pulse…' })}${inputField('@chorusExpansion', 'arrangement.chorus', s.arrangement.chorus, { placeholder: 'Widen with harmonies…' })}${inputField('@bridgeBehavior', 'arrangement.bridge', s.arrangement.bridge, { placeholder: 'Pull back, then lift…' })}${inputField('@breakdown', 'arrangement.breakdown', s.arrangement.breakdown, {})}${inputField('@dynamicBuild', 'arrangement.build', s.arrangement.build, {})}${inputField('@dynamicRelease', 'arrangement.release', s.arrangement.release, {})}${inputField('@finalSection', 'arrangement.ending', s.arrangement.ending, {})}</div></div></div>`;
     case 'production': return `${stageHeader('productionTitle', 'productionDesc', activeStepIndex())}<div class="advanced-group">${sectionTitle('production')}<div class="field-grid">${chipGroup('production', 'production.character', ['Raw', 'Organic', 'Polished', 'Lo-fi', 'Vintage', 'Modern', 'Cinematic', 'Analog', 'Digital', 'Live', 'Studio', 'Bedroom', 'Experimental'], s.production.character, { multi: true, max: 6 })}${selectField('recording', 'production.recording', s.production.recording, ['Studio', 'Live room', 'Bedroom', 'Field recording', 'Tape', 'Intimate close-mic'])}${selectField('productionEra', 'production.era', s.production.era, ['Vintage', '1970s', '1980s', '1990s', '2000s', 'Contemporary', 'Timeless'])}${selectField('humanFeel', 'production.humanFeel', s.production.humanFeel, ['Tight', 'Balanced', 'Loose and human', 'Live and spontaneous'])}${selectField('imperfection', 'production.imperfection', s.production.imperfection, ['Immaculate', 'Subtle', 'Audible', 'Rough-edged'])}${selectField('saturation', 'production.saturation', s.production.saturation, ['Clean', 'Gentle analog warmth', 'Tape saturation', 'Rich and saturated'])}${inputField('@productionTexture', 'production.texture', s.production.texture, { placeholder: 'Warm, tactile, spacious…' })}</div></div><div class="advanced-group">${sectionTitle('mixing')}<div class="field-grid">${selectField('stereoWidth', 'mix.stereoWidth', s.mix.stereoWidth, ['Narrow', 'Natural', 'Wide', 'Very wide'])}${selectField('bass', 'mix.bass', s.mix.bass, ['Lean', 'Balanced', 'Warm', 'Full'])}${selectField('mids', 'mix.mids', s.mix.mids, ['Soft', 'Natural', 'Forward', 'Sculpted'])}${selectField('highs', 'mix.highs', s.mix.highs, ['Dark', 'Smooth', 'Open', 'Airy'])}${selectField('compression', 'mix.compression', s.mix.compression, ['Minimal', 'Gentle', 'Moderate', 'Punchy'])}${selectField('dynamics', 'mix.dynamics', s.mix.dynamics, ['Wide', 'Natural', 'Controlled', 'Dense'])}${selectField('reverb', 'mix.reverb', s.mix.reverb, ['Dry', 'Room', 'Plate', 'Hall', 'Dreamy and long'])}${selectField('delay', 'mix.delay', s.mix.delay, ['None', 'Slapback', 'Subtle echoes', 'Rhythmic', 'Wide repeats'])}${selectField('vocalPosition', 'mix.vocalPosition', s.mix.vocalPosition, ['Intimate and upfront', 'Centered', 'Blended', 'Distant'])}${selectField('instrumentPosition', 'mix.instrumentPosition', s.mix.instrumentPosition, ['Centered', 'Natural spread', 'Wide and layered'])}${selectField('ambientLevel', 'mix.ambience', s.mix.ambience, ['Dry', 'Subtle', 'Present', 'Immersive'])}${selectField('spatialDepth', 'mix.spatialDepth', s.mix.spatialDepth, ['Close', 'Natural depth', 'Deep and cinematic'])}</div></div><div>${sectionTitle('creative')}<div class="field-grid">${selectField('vocalTexture', 'creative.vocalTexture', s.creative.vocalTexture, ['Clean', 'Airy', 'Warm', 'Raw', 'Smoky'])}${selectField('vocalDistance', 'creative.vocalDistance', s.creative.vocalDistance, ['Close', 'Mid-distance', 'Distant'])}${selectField('instrumentDensity', 'creative.instrumentDensity', s.creative.instrumentDensity, ['Sparse', 'Moderate', 'Dense'])}${selectField('arrangementComplexity', 'creative.arrangementComplexity', s.creative.arrangementComplexity, ['Minimal', 'Moderate', 'Detailed'])}${selectField('dynamicRange', 'creative.dynamicRange', s.creative.dynamicRange, ['Wide', 'Natural', 'Controlled'])}${selectField('ambientLevel', 'creative.ambientLevel', s.creative.ambientLevel, ['Subtle', 'Present', 'Immersive'])}${selectField('harmonicComplexity', 'creative.harmonicComplexity', s.creative.harmonicComplexity, ['Simple', 'Moderate', 'Rich'])}${selectField('melodicComplexity', 'creative.melodicComplexity', s.creative.melodicComplexity, ['Direct', 'Expressive', 'Ornate'])}${inputField('@negativeConstraints', 'negativeConstraints', s.negativeConstraints, { placeholder: tx('avoidPlaceholder'), full: true })}</div></div>`;
     case 'review': return `${stageHeader('reviewTitle', 'reviewDesc', activeStepIndex())}<div class="review-list">${reviewRows(true)}</div>`;
@@ -144,6 +180,8 @@ function reviewRows(advanced) {
     [tx('styleDescription'), s.styleDescription],
     [tx('vocalsTitle'), (s.vocalists || []).map(v => [translateOption(locale, v.gender), translateOption(locale, v.role), translateOption(locale, v.delivery)].filter(Boolean).join(' · ')).join(' / ') || tx('empty')]
   ];
+  if (s.reference?.enabled) rows.push([tx('referenceFeatureTitle'), [s.reference.actions.map(action => tx(REFERENCE_ACTION_META.find(meta => meta.value === action)?.label || action)).join(' · '), s.reference.sourceDescription].filter(Boolean).join(' — ') || tx('referenceEnabledShort')]);
+  if (s.performance?.enabled) rows.push([tx('performanceFeatureTitle'), s.performance.sections.map(row => `${row.type === 'Custom' && row.custom ? row.custom : row.type} → ${row.direction}`).join(' · ') || tx('performanceEnabledShort')]);
   if (advanced) {
     rows.push([tx('tempo'), s.bpm ? `${s.bpm} BPM` : '']);
     rows.push([tx('timeSignature'), s.timeSignature === 'Custom' ? s.customTimeSignature : s.timeSignature]);
@@ -443,6 +481,52 @@ document.addEventListener('click', async event => {
     return;
   }
   if (target.hasAttribute('data-remove-voice')) { current().vocalists.splice(Number(target.dataset.removeVoice), 1); explicitlyEdited.add('vocalists'); save(); render(); return; }
+  if (target.hasAttribute('data-toggle-reference')) {
+    const ref = current().reference;
+    ref.enabled = !ref.enabled;
+    if (ref.enabled && !ref.actions.length) ref.actions = ['Copy Music Style'];
+    save(); render();
+    requestAnimationFrame(() => document.querySelector('[data-toggle-reference]')?.focus());
+    return;
+  }
+  if (target.hasAttribute('data-toggle-performance')) {
+    const perf = current().performance;
+    perf.enabled = !perf.enabled;
+    if (perf.enabled && !perf.sections.length) {
+      perf.sections = [createSectionRow('Verse 1', 'Emotional')];
+    }
+    save(); render();
+    requestAnimationFrame(() => document.querySelector('[data-toggle-performance]')?.focus());
+    return;
+  }
+  if (target.hasAttribute('data-reference-action')) {
+    const action = target.dataset.referenceAction;
+    const actions = current().reference.actions;
+    const index = actions.indexOf(action);
+    if (index >= 0) actions.splice(index, 1); else actions.push(action);
+    save(); render();
+    requestAnimationFrame(() => document.querySelector(`[data-reference-action="${CSS.escape(action)}"]`)?.focus());
+    return;
+  }
+  if (target.hasAttribute('data-add-section')) {
+    const perf = current().performance;
+    const max = appState.activeMode === 'simple' ? SIMPLE_SECTION_LIMIT : 99;
+    if (perf.sections.length < max) {
+      perf.sections.push(createSectionRow('Verse 1', 'Emotional'));
+      save(); render();
+    }
+    return;
+  }
+  if (target.hasAttribute('data-remove-section')) {
+    current().performance.sections.splice(Number(target.dataset.removeSection), 1);
+    save(); render();
+    return;
+  }
+  if (target.hasAttribute('data-apply-preset-performance')) {
+    applyPerformancePreset(current().performance, target.dataset.applyPresetPerformance);
+    save(); render();
+    return;
+  }
   if (target.hasAttribute('data-choice')) {
     const path = target.dataset.choice; const value = target.dataset.value;
     if (target.dataset.multi === 'true') {

@@ -1,4 +1,5 @@
 import { LANGUAGES } from './data.js';
+import { createPerformanceFeature, createReferenceFeature, normalizePerformanceFeature, normalizeReferenceFeature } from './features.js';
 
 export const SHARED_FIELDS = Object.freeze([
   'genre', 'subgenre', 'moods', 'songLanguage', 'lyricsDescription', 'styleDescription', 'vocalists'
@@ -8,7 +9,8 @@ export const clone = value => value == null ? value : structuredClone(value);
 export function createSimpleState() {
   return {
     genre: '', subgenre: '', moods: [], songLanguage: 'English', lyricsDescription: '',
-    styleDescription: '', vocalists: [], emotionalDirection: ''
+    styleDescription: '', vocalists: [], emotionalDirection: '',
+    reference: createReferenceFeature(), performance: createPerformanceFeature()
   };
 }
 
@@ -25,7 +27,8 @@ export function createAdvancedState() {
     customStructure: '', production: { character: [], recording: '', humanFeel: '', imperfection: '', era: '', saturation: '', texture: '' },
     mix: { stereoWidth: '', bass: '', mids: '', highs: '', compression: '', dynamics: '', reverb: '', delay: '', vocalPosition: '', instrumentPosition: '', ambience: '', spatialDepth: '' },
     creative: { vocalTexture: '', vocalDistance: '', instrumentDensity: '', arrangementComplexity: '', dynamicRange: '', ambientLevel: '', percussionDensity: '', harmonicComplexity: '', melodicComplexity: '', productionEra: '', recordingCharacter: '', humanFeel: '', imperfection: '' },
-    negativeConstraints: ''
+    negativeConstraints: '',
+    reference: createReferenceFeature(), performance: createPerformanceFeature()
   };
 }
 
@@ -56,6 +59,8 @@ function normalizeModeState(state, defaults, mode) {
   })) : [];
   if (!LANGUAGES.includes(target.songLanguage)) target.songLanguage = 'English';
   for (const key of ['genre', 'subgenre', 'lyricsDescription', 'styleDescription']) if (typeof target[key] !== 'string') target[key] = '';
+  target.reference = normalizeReferenceFeature(target.reference);
+  target.performance = normalizePerformanceFeature(target.performance, mode);
   if (mode === 'advanced') {
     if (Array.isArray(target.instruments)) target.instruments = target.instruments.map(item => typeof item === 'string' ? { name: item, role: 'Secondary' } : item).filter(item => isObject(item) && typeof item.name === 'string');
     else target.instruments = [];

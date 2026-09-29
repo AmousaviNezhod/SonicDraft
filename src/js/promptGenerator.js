@@ -1,3 +1,5 @@
+import { buildPerformanceBrief, buildReferenceBrief } from './features.js';
+
 const clean = value => typeof value === 'string' ? value.trim() : '';
 const list = value => Array.isArray(value) ? value.filter(Boolean) : [];
 const add = (lines, label, value) => {
@@ -29,7 +31,10 @@ export function generateSimplePrompt(state) {
   add(brief, 'Style description', clean(state.styleDescription));
   for (const voice of vocalDescription(state.vocalists)) brief.push(voice);
   const context = brief.length ? brief.join('\n') : 'No specific creative constraints were provided; make thoughtful, coherent professional choices.';
-  return `${ROLE}\n\nCREATIVE BRIEF (user-selected direction):\n${context}\n\nCreate natural, singable, emotionally coherent lyrics with an appropriate structure. Respect the chosen genre, mood, language, and vocal direction. Avoid generic AI clichés, filler, unnatural repetition, and unrequested genre fusion. Where musical details are unspecified, make sensible professional choices; do not imply the user explicitly requested those choices. Keep lyrics concise, memorable, and believable.\n\n${OUTPUT_CONTRACT}`;
+  const referenceBrief = buildReferenceBrief(state.reference);
+  const performanceBrief = buildPerformanceBrief(state.performance);
+  const featureSections = [referenceBrief, performanceBrief].filter(Boolean).join('\n\n');
+  return `${ROLE}\n\nCREATIVE BRIEF (user-selected direction):\n${context}${featureSections ? `\n\n${featureSections}` : ''}\n\nCreate natural, singable, emotionally coherent lyrics with an appropriate structure. Respect the chosen genre, mood, language, and vocal direction. Avoid generic AI clichés, filler, unnatural repetition, and unrequested genre fusion. Where musical details are unspecified, make sensible professional choices; do not imply the user explicitly requested those choices. Keep lyrics concise, memorable, and believable.\n\n${OUTPUT_CONTRACT}`;
 }
 
 export function generateAdvancedPrompt(state) {
@@ -73,7 +78,10 @@ export function generateAdvancedPrompt(state) {
   add(brief, 'Imperfection level', state.creative?.imperfection);
   const negatives = clean(state.negativeConstraints);
   const constraints = negatives ? `\n\nADDITIONAL AVOIDANCE CONSTRAINTS (user-selected):\n${negatives}` : '';
-  return `${ROLE}\n\nCREATIVE BRIEF AND EXPLICIT SPECIFICATIONS:\n${brief.length ? brief.join('\n') : 'No specifications were provided; make coherent professional choices.'}\n\nTreat every value above as an explicit constraint. Preserve numeric and musical values exactly; do not replace them with generic alternatives. For unspecified fields, make tasteful choices that support a coherent song. Write natural, singable lyrics and avoid generic AI clichés, filler, unnatural repetition, and contradictory production choices.${constraints}\n\n${OUTPUT_CONTRACT}`;
+  const referenceBrief = buildReferenceBrief(state.reference);
+  const performanceBrief = buildPerformanceBrief(state.performance);
+  const featureSections = [referenceBrief, performanceBrief].filter(Boolean).join('\n\n');
+  return `${ROLE}\n\nCREATIVE BRIEF AND EXPLICIT SPECIFICATIONS:\n${brief.length ? brief.join('\n') : 'No specifications were provided; make coherent professional choices.'}${featureSections ? `\n\n${featureSections}` : ''}\n\nTreat every value above as an explicit constraint. Preserve numeric and musical values exactly; do not replace them with generic alternatives. For unspecified fields, make tasteful choices that support a coherent song. Write natural, singable lyrics and avoid generic AI clichés, filler, unnatural repetition, and contradictory production choices.${constraints}\n\n${OUTPUT_CONTRACT}`;
 }
 
 export function generateMasterPrompt(mode, state) {
